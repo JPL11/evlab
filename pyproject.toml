@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "evlab"
+version = "0.1.0.dev0"
+description = "Inspect, clean, convert, and benchmark event-camera data from the command line"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Jacky Li", email = "jackydli95@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "click>=8.1",
+]
+keywords = ["event-camera", "neuromorphic", "dvs", "event-based-vision"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.7", "pillow>=10.0"]
+aedat = ["aedat>=2.0"]
+dev = ["pytest>=7.0", "ruff>=0.4", "matplotlib>=3.7", "pillow>=10.0"]
+
+[project.scripts]
+evlab = "evlab.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/JPL11/evlab"
+Issues = "https://github.com/JPL11/evlab/issues"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
