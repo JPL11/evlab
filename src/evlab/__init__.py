@@ -2,5 +2,5 @@
 
 from .formats import EventData, from_arrays, load, save
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0a1"
 __all__ = ["EventData", "from_arrays", "load", "save", "__version__"]
