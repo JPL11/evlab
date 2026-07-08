@@ -10,6 +10,7 @@ import numpy as np
 from . import formats, metrics
 from .filters import FILTERS
 from .representations import voxel_grid
+from .synth import GENERATORS
 
 
 @click.group()
@@ -119,6 +120,65 @@ def visualize(src, dst, mode, window, tau):
     else:
         viz.render_frame(data, mode, dst, tau_us=tau * 1000)
         click.echo(f"wrote {mode} image -> {dst}")
+
+
+@main.command()
+@click.argument("dst", type=click.Path(dir_okay=False))
+@click.option(
+    "--pattern", type=click.Choice(sorted(GENERATORS)), default="moving-bar", show_default=True
+)
+@click.option("--resolution", default="240x240", show_default=True, help="WIDTHxHEIGHT.")
+@click.option("--duration", type=float, default=1.0, show_default=True, help="Seconds.")
+@click.option("--signal-rate", type=float, default=20000, show_default=True, help="Signal ev/s.")
+@click.option("--noise-rate", type=float, default=5000, show_default=True, help="Noise ev/s.")
+@click.option("--seed", type=int, default=0, show_default=True)
+def synth(dst, pattern, resolution, duration, signal_rate, noise_rate, seed):
+    """Generate a synthetic stream with ground-truth signal/noise labels."""
+    width, _, height = resolution.partition("x")
+    data = GENERATORS[pattern](
+        width=int(width),
+        height=int(height),
+        duration_us=int(duration * 1e6),
+        signal_rate_hz=signal_rate,
+        noise_rate_hz=noise_rate,
+        seed=seed,
+    )
+    formats.save(data, dst)
+    n_sig = int(data.meta["signal"].sum())
+    click.echo(f"wrote {len(data.events):,} events ({n_sig:,} signal) -> {dst}")
+
+
+@main.command("denoise-bench")
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--filter", "filter_name", type=click.Choice(sorted(FILTERS)), default="baf", show_default=True
+)
+@click.option(
+    "--window",
+    type=int,
+    default=5000,
+    show_default=True,
+    help="Time window (baf) / refractory period, microseconds.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
+def denoise_bench(src, filter_name, window, as_json):
+    """Score a denoising filter against a labeled stream (see `evlab synth`)."""
+    from .filters import MASKS
+
+    data = formats.load(src)
+    if filter_name == "baf":
+        mask = MASKS[filter_name](data, time_window_us=window)
+    else:
+        mask = MASKS[filter_name](data, refractory_us=window)
+    score = metrics.denoise_score(data, mask)
+    if as_json:
+        click.echo(json.dumps(score, indent=2))
+        return
+    click.echo(f"{filter_name} (window={window} us) on {src}")
+    click.echo(f"  precision     : {score['precision']:.1%}")
+    click.echo(f"  recall        : {score['recall']:.1%}")
+    click.echo(f"  f1            : {score['f1']:.3f}")
+    click.echo(f"  noise removed : {score['noise_removed']:.1%}")
 
 
 @main.command()

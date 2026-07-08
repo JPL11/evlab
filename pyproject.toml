@@ -25,7 +25,8 @@ classifiers = [
 [project.optional-dependencies]
 viz = ["matplotlib>=3.7", "pillow>=10.0"]
 aedat = ["aedat>=2.0"]
-dev = ["pytest>=7.0", "ruff>=0.4", "matplotlib>=3.7", "pillow>=10.0"]
+ros = ["rosbags>=0.10"]
+dev = ["pytest>=7.0", "ruff>=0.4", "matplotlib>=3.7", "pillow>=10.0", "rosbags>=0.10"]
 
 [project.scripts]
 evlab = "evlab.cli:main"

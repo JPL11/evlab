@@ -106,18 +106,28 @@ def load_npz(path: str) -> EventData:
             ev = data["events"]
             width = int(data["width"]) if "width" in available else None
             height = int(data["height"]) if "height" in available else None
-            return from_arrays(ev["x"], ev["y"], ev["t"], ev["p"], width, height)
-        keys = _resolve_npz_keys(available)
-        width = int(data["width"]) if "width" in available else None
-        height = int(data["height"]) if "height" in available else None
-        return from_arrays(
-            data[keys["x"]], data[keys["y"]], data[keys["t"]], data[keys["p"]], width, height
-        )
+            out = from_arrays(ev["x"], ev["y"], ev["t"], ev["p"], width, height)
+        else:
+            keys = _resolve_npz_keys(available)
+            width = int(data["width"]) if "width" in available else None
+            height = int(data["height"]) if "height" in available else None
+            out = from_arrays(
+                data[keys["x"]], data[keys["y"]], data[keys["t"]], data[keys["p"]], width, height
+            )
+        # Ground-truth signal/noise labels (written by `evlab synth`). The
+        # events were saved t-sorted and from_arrays' stable sort is the
+        # identity on sorted input, so the mask stays aligned.
+        if "signal" in available:
+            out.meta["signal"] = data["signal"].astype(bool)
+        return out
 
 
 def save_npz(data: EventData, path: str) -> None:
+    extra = {}
+    if "signal" in data.meta:
+        extra["signal"] = np.asarray(data.meta["signal"], dtype=bool)
     np.savez_compressed(
-        path, events=data.events, width=np.int64(data.width), height=np.int64(data.height)
+        path, events=data.events, width=np.int64(data.width), height=np.int64(data.height), **extra
     )
 
 
@@ -178,6 +188,98 @@ def load_aedat4(path: str) -> EventData:
 
 
 # ---------------------------------------------------------------------------
+# Prophesee legacy .dat (2D CD events)
+# ---------------------------------------------------------------------------
+
+
+def load_dat(path: str) -> EventData:
+    """Read a Prophesee legacy ``.dat`` file (2D CD events).
+
+    Layout: ASCII header lines starting with ``%``, then one byte event
+    type + one byte event size, then 8-byte records of little-endian
+    ``(uint32 t_us, uint32 addr)`` with ``x = addr & 0x3FFF``,
+    ``y = (addr >> 14) & 0x3FFF``, ``p = (addr >> 28) & 1``. The uint32
+    timestamp wraps every ~71 minutes; wraps are unwrapped monotonically.
+    """
+    width = height = None
+    with open(path, "rb") as f:
+        while True:
+            pos = f.tell()
+            line = f.readline()
+            if not line.startswith(b"%"):
+                f.seek(pos)
+                break
+            text = line[1:].strip().decode("ascii", errors="replace")
+            if text.lower().startswith("width"):
+                width = int(text.split()[-1])
+            elif text.lower().startswith("height"):
+                height = int(text.split()[-1])
+        header = f.read(2)
+        if len(header) < 2:
+            raise ValueError(f"truncated .dat file: {path}")
+        ev_size = header[1]
+        if ev_size != 8:
+            raise ValueError(f"unsupported .dat event size {ev_size} (expected 8): {path}")
+        raw = np.frombuffer(f.read(), dtype=np.dtype([("t", "<u4"), ("addr", "<u4")]))
+
+    t = raw["t"].astype(np.int64)
+    # Unwrap uint32 timestamp overflows.
+    wraps = np.cumsum(np.diff(t, prepend=t[:1]) < 0)
+    t += wraps * (np.int64(1) << 32)
+
+    addr = raw["addr"]
+    x = addr & 0x3FFF
+    y = (addr >> 14) & 0x3FFF
+    p = (addr >> 28) & 0x1
+    return from_arrays(x, y, t, p, width, height)
+
+
+# ---------------------------------------------------------------------------
+# ROS bags (optional dependency; dvs_msgs/prophesee-style EventArray topics)
+# ---------------------------------------------------------------------------
+
+
+def load_rosbag(path: str, topic: str | None = None) -> EventData:
+    """Extract events from a ROS1/ROS2 bag containing EventArray messages.
+
+    Requires the pure-python ``rosbags`` package (``pip install evlab[ros]``).
+    Reads every connection whose message type ends in ``EventArray``
+    (dvs_msgs, prophesee_event_msgs, ...), or only ``topic`` if given.
+    """
+    try:
+        from rosbags.highlevel import AnyReader
+    except ImportError as e:
+        raise ImportError(
+            "reading ROS bags requires the 'rosbags' package: pip install evlab[ros]"
+        ) from e
+    from pathlib import Path
+
+    xs, ys, ts, ps = [], [], [], []
+    width = height = None
+    with AnyReader([Path(path)]) as reader:
+        conns = [
+            c
+            for c in reader.connections
+            if c.msgtype.endswith("EventArray") and (topic is None or c.topic == topic)
+        ]
+        if not conns:
+            available = sorted({f"{c.topic} ({c.msgtype})" for c in reader.connections})
+            raise ValueError(f"no EventArray topic found in {path}; connections: {available}")
+        for conn, _timestamp, raw in reader.messages(connections=conns):
+            msg = reader.deserialize(raw, conn.msgtype)
+            if getattr(msg, "width", 0):
+                width, height = int(msg.width), int(msg.height)
+            for ev in msg.events:
+                xs.append(ev.x)
+                ys.append(ev.y)
+                ts.append(int(ev.ts.sec) * 1_000_000 + int(ev.ts.nanosec) // 1000)
+                ps.append(bool(ev.polarity))
+    if not xs:
+        raise ValueError(f"EventArray topic in {path} contained no events")
+    return from_arrays(np.array(xs), np.array(ys), np.array(ts), np.array(ps), width, height)
+
+
+# ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
 
@@ -186,6 +288,8 @@ _LOADERS = {
     ".csv": load_csv,
     ".txt": load_csv,
     ".aedat4": load_aedat4,
+    ".dat": load_dat,
+    ".bag": load_rosbag,
 }
 
 _SAVERS = {

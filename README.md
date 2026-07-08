@@ -13,19 +13,35 @@ pip install evlab[viz]
 
 evlab info recording.npz                 # what is this file?
 evlab convert events.aedat4 events.npz   # normalize the container
+evlab convert drive.dat events.npz       # Prophesee .dat works too
+evlab convert flight.bag events.npz      # ...and ROS bags (dvs_msgs)
 evlab denoise events.npz clean.npz --filter baf --window 5000
 evlab voxel clean.npz voxels.npy --bins 10
 evlab visualize clean.npz preview.gif --mode gif
 evlab benchmark events.npz clean.npz     # what did the filter do?
 ```
 
+How good is a denoising filter, really? Generate a labeled stream and score it:
+
+```bash
+evlab synth labeled.npz --signal-rate 20000 --noise-rate 8000
+evlab denoise-bench labeled.npz --filter baf --window 3000
+#   precision     : 99.2%
+#   recall        : 37.8%
+#   f1            : 0.548
+#   noise removed : 99.2%
+```
+
 ## Status
 
-Early alpha. The canonical representation, NPZ/CSV/TXT round-trip, AEDAT4
-reading, BAF/refractory denoising, voxel grids, time surfaces, and the six CLI
-commands above work and are tested. Planned next: Prophesee `.dat`/`.raw`,
-ROS bag extraction, dataset-aware loaders (via [Tonic]), streaming via
-[Faery], and denoising quality benchmarks against labeled datasets.
+Early alpha. Works and is tested: the canonical representation; loading
+NPZ/CSV/TXT, AEDAT4 (`[aedat]` extra), Prophesee legacy `.dat` (with
+timestamp-wrap handling), and ROS1/ROS2 bags with `EventArray` topics
+(`[ros]` extra); BAF/refractory denoising; voxel grids, time surfaces,
+accumulate frames; synthetic labeled streams and precision/recall filter
+scoring; and the eight CLI commands above. Planned next: Prophesee EVT3
+`.raw`, dataset-aware loaders (via [Tonic]), streaming via [Faery], and
+more filters (STCF, IE/YNoise) under `denoise-bench`.
 
 [Tonic]: https://github.com/neuromorphs/tonic
 [Faery]: https://github.com/aestream/faery

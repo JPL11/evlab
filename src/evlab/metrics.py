@@ -56,6 +56,39 @@ def event_structural_ratio(data: EventData, patch: int = 8) -> float:
     return float(top / max(flat.sum(), 1))
 
 
+def denoise_score(data: EventData, keep_mask) -> dict:
+    """Score a denoising keep-mask against ground-truth labels.
+
+    Requires ``data.meta['signal']`` (boolean per-event array, True =
+    signal), as produced by `evlab.synth`. Positive class = signal kept.
+    """
+    import numpy as np
+
+    if "signal" not in data.meta:
+        raise ValueError("no ground-truth labels: data.meta['signal'] missing (see `evlab synth`)")
+    signal = np.asarray(data.meta["signal"], dtype=bool)
+    keep = np.asarray(keep_mask, dtype=bool)
+    if signal.shape != keep.shape:
+        raise ValueError(f"label/mask shape mismatch: {signal.shape} vs {keep.shape}")
+
+    tp = int((keep & signal).sum())
+    fp = int((keep & ~signal).sum())
+    fn = int((~keep & signal).sum())
+    n_noise = int((~signal).sum())
+    precision = tp / max(tp + fp, 1)
+    recall = tp / max(tp + fn, 1)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-12)
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "signal_events": int(signal.sum()),
+        "noise_events": n_noise,
+        "kept_events": int(keep.sum()),
+        "noise_removed": (n_noise - fp) / max(n_noise, 1),
+    }
+
+
 def compare(reference: EventData, other: EventData) -> dict:
     """Metrics comparing two streams (e.g. clean vs denoised)."""
     return {
