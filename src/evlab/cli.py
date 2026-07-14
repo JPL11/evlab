@@ -349,3 +349,41 @@ def corrupt_bench(src, filter_name, window, detect_window, as_json):
         det = f"{d['detected']}/{d['episodes']}"
         ttd = "n/a" if d["median_ttd_ms"] != d["median_ttd_ms"] else f"{d['median_ttd_ms']:.0f} ms"
         click.echo(f"  as detector     : AUROC {d['auroc']:.3f}, {det} episodes, median TTD {ttd}")
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dst", type=click.Path(dir_okay=False))
+@click.option(
+    "--window",
+    type=int,
+    default=50000,
+    show_default=True,
+    help="Window length in microseconds.",
+)
+def features(src, dst, window):
+    """Compute 12 causal per-window monitoring statistics.
+
+    Rate, polarity fraction, active-pixel fraction, hot-pixel concentration
+    ratios, spatial entropy, short-horizon Fano factors, inter-event-time
+    dispersion, and pixel persistence: the feature map runtime corruption
+    monitors consume. Writes .npz (features, names, start_us) or .csv with
+    a header row.
+    """
+    from .features import FEATURE_NAMES, window_features
+
+    data = formats.load(src)
+    feats, starts = window_features(data, window_us=window)
+    if dst.endswith(".csv"):
+        header = "start_us," + ",".join(FEATURE_NAMES)
+        np.savetxt(
+            dst,
+            np.column_stack([starts, feats]),
+            delimiter=",",
+            header=header,
+            comments="",
+            fmt="%.6g",
+        )
+    else:
+        np.savez_compressed(dst, features=feats, names=np.array(FEATURE_NAMES), start_us=starts)
+    click.echo(f"wrote {feats.shape[0]} windows x {feats.shape[1]} features -> {dst}")

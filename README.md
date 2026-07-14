@@ -21,6 +21,7 @@ evlab visualize clean.npz preview.gif --mode gif
 evlab benchmark events.npz clean.npz     # what did the filter do?
 evlab corrupt clean.npz bad.npz --emit-recipe r.json   # benchmark generator
 evlab corrupt-bench bad.npz --filter baf # per-type scores + detection AUROC
+evlab features events.npz feats.csv      # 12 per-window monitor statistics
 ```
 
 How good is a denoising filter, really? Generate a labeled stream and score it:
@@ -74,7 +75,8 @@ timestamp-wrap handling), and ROS1/ROS2 bags with `EventArray` topics
 (`[ros]` extra); BAF/refractory denoising; voxel grids, time surfaces,
 accumulate frames; synthetic labeled streams and precision/recall filter
 scoring; six-type corruption injection with reproducible recipes and per-type
-filter scoring with detection AUROC / time-to-detection; and the ten CLI
+filter scoring with detection AUROC / time-to-detection; 12 causal
+per-window monitoring features (`evlab features`); and the eleven CLI
 commands above. Planned next: Prophesee EVT3
 `.raw`, dataset-aware loaders (via [Tonic]), streaming via [Faery], and
 more filters (STCF, IE/YNoise) under `denoise-bench`.
