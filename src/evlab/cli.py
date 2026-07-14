@@ -8,9 +8,9 @@ import click
 import numpy as np
 
 from . import formats, metrics
+from .corrupt import TYPES, apply_schedule, load_recipe, make_schedule, save_recipe
 from .filters import FILTERS
 from .representations import voxel_grid
-from .corrupt import SEVERITIES, TYPES, apply_schedule, load_recipe, make_schedule, save_recipe
 from .synth import GENERATORS
 
 
@@ -214,9 +214,7 @@ if __name__ == "__main__":
     show_default=True,
     help="Comma-separated corruption types, or 'all'. Types: " + ", ".join(sorted(TYPES)),
 )
-@click.option(
-    "--severity", type=click.Choice(["low", "high"]), default="high", show_default=True
-)
+@click.option("--severity", type=click.Choice(["low", "high"]), default="high", show_default=True)
 @click.option(
     "--coverage",
     type=float,
@@ -306,7 +304,9 @@ def corrupt_bench(src, filter_name, window, detect_window, as_json):
 
     data = formats.load(src)
     if "corruption" not in data.meta:
-        raise click.ClickException(f"{src} has no corruption labels; generate it with `evlab corrupt`")
+        raise click.ClickException(
+            f"{src} has no corruption labels; generate it with `evlab corrupt`"
+        )
     if filter_name == "baf":
         mask = MASKS[filter_name](data, time_window_us=window)
     else:

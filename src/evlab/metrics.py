@@ -191,9 +191,7 @@ def auroc(scores, binary_labels) -> float:
     return float((ranks[y].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def time_to_detection(
-    scores, labels, schedule, window_us: int = 50_000, fpr: float = 0.05
-) -> dict:
+def time_to_detection(scores, labels, schedule, window_us: int = 50_000, fpr: float = 0.05) -> dict:
     """Median time-to-detection at a fixed false-positive rate.
 
     The threshold is the (1-fpr) quantile of clean-window scores. For each
@@ -204,7 +202,12 @@ def time_to_detection(
     lab = np.asarray(labels)
     clean = lab == 0
     if not clean.any():
-        return {"threshold": float("nan"), "detected": 0, "episodes": len(schedule), "median_ttd_ms": float("nan")}
+        return {
+            "threshold": float("nan"),
+            "detected": 0,
+            "episodes": len(schedule),
+            "median_ttd_ms": float("nan"),
+        }
     threshold = float(np.quantile(s[clean], 1 - fpr))
     flagged = s > threshold
     ttds = []

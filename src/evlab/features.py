@@ -75,7 +75,9 @@ def window_features(data: EventData, window_us: int = 50_000):
         per_px = counts[active].astype(float)
         sorted_px = np.sort(per_px)[::-1]
 
-        top = lambda frac: sorted_px[: max(int(np.ceil(n_px * frac)), 1)].sum() / n
+        def top(frac):
+            return sorted_px[: max(int(np.ceil(n_px * frac)), 1)].sum() / n
+
         probs = per_px / n
         entropy = float(-(probs * np.log(probs)).sum() / np.log(n_px))
 

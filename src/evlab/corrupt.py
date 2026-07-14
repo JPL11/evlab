@@ -33,8 +33,14 @@ TYPE_NAMES = {v: k for k, v in TYPES.items()}
 
 # Severity presets: documented failure-mode parameters, two levels each.
 SEVERITIES = {
-    "hot-pixels": {"low": {"pixels": 30, "rate_hz": 500.0}, "high": {"pixels": 150, "rate_hz": 2000.0}},
-    "flicker": {"low": {"freq_hz": 100.0, "area": 0.3, "rate_scale": 1.0}, "high": {"freq_hz": 120.0, "area": 1.0, "rate_scale": 1.0}},
+    "hot-pixels": {
+        "low": {"pixels": 30, "rate_hz": 500.0},
+        "high": {"pixels": 150, "rate_hz": 2000.0},
+    },
+    "flicker": {
+        "low": {"freq_hz": 100.0, "area": 0.3, "rate_scale": 1.0},
+        "high": {"freq_hz": 120.0, "area": 1.0, "rate_scale": 1.0},
+    },
     "burst": {"low": {"rate_scale": 1.0}, "high": {"rate_scale": 3.0}},
     "dead-region": {"low": {"area": 0.15}, "high": {"area": 0.40}},
     "congestion": {"low": {"stall_us": 2000}, "high": {"stall_us": 10000}},
@@ -180,7 +186,13 @@ def apply_schedule(data: EventData, episodes: list[dict], seed: int = 0) -> Even
             n = rng.poisson(scale * base_rate * (b - a) / 1e6)
             ts = rng.uniform(a, b, n)
             injected.append(
-                (rng.integers(0, W, n), rng.integers(0, H, n), ts, rng.integers(0, 2, n).astype(np.int8), tid)
+                (
+                    rng.integers(0, W, n),
+                    rng.integers(0, H, n),
+                    ts,
+                    rng.integers(0, 2, n).astype(np.int8),
+                    tid,
+                )
             )
 
         elif name == "dead-region":
@@ -188,7 +200,9 @@ def apply_schedule(data: EventData, episodes: list[dict], seed: int = 0) -> Even
             side = np.sqrt(area)
             rw, rh = max(int(W * side), 1), max(int(H * side), 1)
             rx, ry = rng.integers(0, W - rw + 1), rng.integers(0, H - rh + 1)
-            inside = in_epi & (ev["x"] >= rx) & (ev["x"] < rx + rw) & (ev["y"] >= ry) & (ev["y"] < ry + rh)
+            in_x = (ev["x"] >= rx) & (ev["x"] < rx + rw)
+            in_y = (ev["y"] >= ry) & (ev["y"] < ry + rh)
+            inside = in_epi & in_x & in_y
             keep &= ~inside
             epi["params"] = {**prm, "x": int(rx), "y": int(ry), "w": int(rw), "h": int(rh)}
 
