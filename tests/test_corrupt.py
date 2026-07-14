@@ -153,3 +153,67 @@ def test_labels_survive_npz_roundtrip(tmp_path, stream):
     formats.save(out, p)
     back = formats.load(p)
     assert np.array_equal(back.meta["corruption"], out.meta["corruption"])
+
+
+# ---------------------------------------------------------------------------
+# corrupt-bench metrics
+# ---------------------------------------------------------------------------
+
+
+def test_corruption_score_perfect_and_null(stream):
+    from evlab.metrics import corruption_score
+
+    out = apply_schedule(stream, [episode("burst", 200_000, 1_200_000)], seed=0)
+    lab = out.meta["corruption"]
+    perfect = lab == 0  # keep exactly the clean events
+    s = corruption_score(out, perfect)
+    assert s["precision"] == 1.0 and s["recall"] == 1.0 and s["clean_retention"] == 1.0
+    assert s["per_type"]["burst"]["removed"] == 1.0
+    keep_all = np.ones(len(out.events), bool)
+    s0 = corruption_score(out, keep_all)
+    assert s0["recall"] == 0.0 and s0["clean_retention"] == 1.0
+
+
+def test_window_labels_follow_schedule(stream):
+    from evlab.metrics import window_labels
+
+    eps = [episode("burst", 500_000, 1_000_000)]
+    out = apply_schedule(stream, eps, seed=0)
+    wl = window_labels(out, eps, window_us=50_000)
+    # Windows fully inside the episode carry the type id.
+    assert wl[12] == TYPES["burst"] and wl[15] == TYPES["burst"]
+    # Far outside: clean.
+    assert wl[2] == 0 and wl[30] == 0
+
+
+def test_auroc_orders_scores():
+    from evlab.metrics import auroc
+
+    assert auroc([0.1, 0.2, 0.8, 0.9], [False, False, True, True]) == 1.0
+    assert auroc([0.9, 0.8, 0.2, 0.1], [False, False, True, True]) == 0.0
+    assert abs(auroc([0.5, 0.5, 0.5, 0.5], [False, True, False, True]) - 0.5) < 1e-9
+
+
+def test_time_to_detection_finds_onset(stream):
+    from evlab.metrics import time_to_detection, window_labels
+
+    eps = [episode("burst", 500_000, 1_500_000)]
+    out = apply_schedule(stream, eps, seed=0)
+    wl = window_labels(out, eps, window_us=50_000)
+    # Synthetic detector: fires from 100 ms after onset until the episode
+    # ends (a detector that keeps firing on clean windows would raise the
+    # 5% FPR threshold above its own signal, correctly yielding no detection).
+    idx_us = np.arange(len(wl)) * 50_000
+    scores = np.zeros(len(wl))
+    scores[(idx_us >= 600_000) & (idx_us < 1_500_000)] = 1.0
+    d = time_to_detection(scores, wl, eps, window_us=50_000)
+    assert d["detected"] == 1 and d["episodes"] == 1
+    assert 100 <= d["median_ttd_ms"] <= 200
+
+
+def test_schedule_survives_npz_roundtrip(tmp_path, stream):
+    out = apply_schedule(stream, [episode("burst", 0, 1_000_000)], seed=0)
+    p = str(tmp_path / "s.npz")
+    formats.save(out, p)
+    back = formats.load(p)
+    assert back.meta["schedule"] == out.meta["schedule"]

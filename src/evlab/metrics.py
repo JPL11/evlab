@@ -98,3 +98,128 @@ def compare(reference: EventData, other: EventData) -> dict:
         "structure_ref": event_structural_ratio(reference),
         "structure_other": event_structural_ratio(other),
     }
+
+
+# ---------------------------------------------------------------------------
+# corruption benchmark scoring (labels + schedules from `evlab corrupt`)
+# ---------------------------------------------------------------------------
+
+
+def corruption_score(data: EventData, keep_mask) -> dict:
+    """Score a keep-mask against per-event corruption labels.
+
+    Treats the filter as a corruption-removal classifier: ``recall`` is the
+    fraction of corrupted events removed (also broken out per type),
+    ``precision`` the fraction of removed events that were corrupted, and
+    ``clean_retention`` the fraction of clean events kept.
+    """
+    from .corrupt import TYPE_NAMES
+
+    keep = np.asarray(keep_mask, bool)
+    labels = np.asarray(data.meta["corruption"])
+    corrupted = labels != 0
+    removed = ~keep
+
+    tp = int((removed & corrupted).sum())
+    n_removed = int(removed.sum())
+    n_corrupted = int(corrupted.sum())
+    n_clean = int((~corrupted).sum())
+    precision = tp / n_removed if n_removed else 0.0
+    recall = tp / n_corrupted if n_corrupted else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+
+    per_type = {}
+    for tid in np.unique(labels[corrupted]):
+        of_type = labels == tid
+        per_type[TYPE_NAMES[int(tid)]] = {
+            "events": int(of_type.sum()),
+            "removed": float((removed & of_type).sum() / of_type.sum()),
+        }
+
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "clean_retention": float(keep[~corrupted].sum() / n_clean) if n_clean else 0.0,
+        "per_type": per_type,
+    }
+
+
+def window_labels(data: EventData, schedule: list[dict], window_us: int = 50_000):
+    """Per-window ground truth from an episode schedule.
+
+    Windows mostly (>50%) inside an episode get that episode's type id,
+    windows overlapping no episode get 0, and partial-boundary windows get
+    -1 (excluded), following the EvCorrupt-Bench protocol.
+    """
+    from .corrupt import TYPES
+
+    t = data.events["t"].astype(np.int64)
+    t0 = int(t[0]) if len(t) else 0
+    n_win = int((int(t[-1]) - t0) // window_us) + 1 if len(t) else 0
+    labels = np.zeros(n_win, np.int8)
+    for k in range(n_win):
+        a, b = t0 + k * window_us, t0 + (k + 1) * window_us
+        for epi in schedule:
+            ea, eb = t0 + epi["start_us"], t0 + epi["end_us"]
+            overlap = max(0, min(b, eb) - max(a, ea))
+            if overlap == 0:
+                continue
+            if overlap > window_us // 2:
+                labels[k] = TYPES[epi["type"]]
+            else:
+                labels[k] = -1
+            break
+    return labels
+
+
+def auroc(scores, binary_labels) -> float:
+    """Area under the ROC curve via the rank-sum (Mann-Whitney) statistic."""
+    s = np.asarray(scores, float)
+    y = np.asarray(binary_labels, bool)
+    n_pos, n_neg = int(y.sum()), int((~y).sum())
+    if n_pos == 0 or n_neg == 0:
+        return float("nan")
+    order = np.argsort(s, kind="stable")
+    ranks = np.empty(len(s), float)
+    ranks[order] = np.arange(1, len(s) + 1)
+    # Midranks for ties.
+    for v in np.unique(s):
+        tied = s == v
+        if tied.sum() > 1:
+            ranks[tied] = ranks[tied].mean()
+    return float((ranks[y].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
+
+
+def time_to_detection(
+    scores, labels, schedule, window_us: int = 50_000, fpr: float = 0.05
+) -> dict:
+    """Median time-to-detection at a fixed false-positive rate.
+
+    The threshold is the (1-fpr) quantile of clean-window scores. For each
+    episode, detection time is the delay from onset to the first flagged
+    window; undetected episodes count in ``detected`` but not the median.
+    """
+    s = np.asarray(scores, float)
+    lab = np.asarray(labels)
+    clean = lab == 0
+    if not clean.any():
+        return {"threshold": float("nan"), "detected": 0, "episodes": len(schedule), "median_ttd_ms": float("nan")}
+    threshold = float(np.quantile(s[clean], 1 - fpr))
+    flagged = s > threshold
+    ttds = []
+    detected = 0
+    for j, epi in enumerate(schedule):
+        k0 = epi["start_us"] // window_us
+        k1 = (epi["end_us"] - 1) // window_us
+        ks = np.arange(k0, min(k1 + 1, len(s)))
+        hit = ks[flagged[ks] & (lab[ks] > 0)] if len(ks) else []
+        if len(hit):
+            detected += 1
+            ttds.append((int(hit[0]) + 1) * window_us - epi["start_us"])
+    return {
+        "threshold": threshold,
+        "detected": detected,
+        "episodes": len(schedule),
+        "median_ttd_ms": float(np.median(ttds) / 1000) if ttds else float("nan"),
+    }

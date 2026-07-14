@@ -272,3 +272,80 @@ def corrupt(src, dst, types, severity, coverage, seed, recipe_in, recipe_out):
         f"wrote {len(result.events):,} events ({n_cor:,} corrupted, "
         f"{len(episodes)} episodes) -> {dst}"
     )
+
+
+@main.command("corrupt-bench")
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--filter", "filter_name", type=click.Choice(sorted(FILTERS)), default="baf", show_default=True
+)
+@click.option(
+    "--window",
+    type=int,
+    default=5000,
+    show_default=True,
+    help="Time window (baf) / refractory period, microseconds.",
+)
+@click.option(
+    "--detect-window",
+    type=int,
+    default=50000,
+    show_default=True,
+    help="Detection window for AUROC / time-to-detection, microseconds.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
+def corrupt_bench(src, filter_name, window, detect_window, as_json):
+    """Score a denoising filter on a corrupted stream (see `evlab corrupt`).
+
+    Reports how much of each corruption type the filter removes and how much
+    clean signal it keeps. If the stream carries its episode schedule, also
+    scores the filter's per-window removal rate as a corruption detector:
+    AUROC over windows and median time-to-detection at 5% FPR.
+    """
+    from .filters import MASKS
+
+    data = formats.load(src)
+    if "corruption" not in data.meta:
+        raise click.ClickException(f"{src} has no corruption labels; generate it with `evlab corrupt`")
+    if filter_name == "baf":
+        mask = MASKS[filter_name](data, time_window_us=window)
+    else:
+        mask = MASKS[filter_name](data, refractory_us=window)
+
+    score = metrics.corruption_score(data, mask)
+    result = {"filter": filter_name, "window_us": window, **score}
+
+    if "schedule" in data.meta:
+        t = data.events["t"].astype("int64")
+        t0 = int(t[0])
+        wins = ((t - t0) // detect_window).astype("int64")
+        n_win = int(wins.max()) + 1 if len(wins) else 0
+        total = np.bincount(wins, minlength=n_win).astype(float)
+        removed = np.bincount(wins[~mask], minlength=n_win).astype(float)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rate = np.where(total > 0, removed / total, 0.0)
+        wl = metrics.window_labels(data, data.meta["schedule"], detect_window)
+        n = min(len(rate), len(wl))
+        rate, wl = rate[:n], wl[:n]
+        keep_w = wl >= 0
+        result["detection"] = {
+            "window_us": detect_window,
+            "auroc": metrics.auroc(rate[keep_w], wl[keep_w] > 0),
+            **metrics.time_to_detection(rate, wl, data.meta["schedule"], detect_window),
+        }
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2))
+        return
+    click.echo(f"{filter_name} (window={window} us) on {src}")
+    click.echo(f"  precision       : {score['precision']:.1%}")
+    click.echo(f"  recall          : {score['recall']:.1%}")
+    click.echo(f"  f1              : {score['f1']:.3f}")
+    click.echo(f"  clean retention : {score['clean_retention']:.1%}")
+    for name, row in sorted(score["per_type"].items()):
+        click.echo(f"  {name:<14}: {row['removed']:.1%} of {row['events']:,} removed")
+    if "detection" in result:
+        d = result["detection"]
+        det = f"{d['detected']}/{d['episodes']}"
+        ttd = "n/a" if d["median_ttd_ms"] != d["median_ttd_ms"] else f"{d['median_ttd_ms']:.0f} ms"
+        click.echo(f"  as detector     : AUROC {d['auroc']:.3f}, {det} episodes, median TTD {ttd}")

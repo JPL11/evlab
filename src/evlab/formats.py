@@ -125,6 +125,10 @@ def load_npz(path: str) -> EventData:
             import numpy as _np
 
             out.meta["corruption"] = data["corruption"].astype(_np.int8)
+        if "schedule_json" in available:
+            import json as _json
+
+            out.meta["schedule"] = _json.loads(str(data["schedule_json"]))
         return out
 
 
@@ -134,6 +138,10 @@ def save_npz(data: EventData, path: str) -> None:
         extra["signal"] = np.asarray(data.meta["signal"], dtype=bool)
     if "corruption" in data.meta:
         extra["corruption"] = np.asarray(data.meta["corruption"], dtype=np.int8)
+    if "schedule" in data.meta:
+        import json as _json
+
+        extra["schedule_json"] = np.array(_json.dumps(data.meta["schedule"]))
     np.savez_compressed(
         path, events=data.events, width=np.int64(data.width), height=np.int64(data.height), **extra
     )

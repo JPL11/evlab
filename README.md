@@ -20,6 +20,7 @@ evlab voxel clean.npz voxels.npy --bins 10
 evlab visualize clean.npz preview.gif --mode gif
 evlab benchmark events.npz clean.npz     # what did the filter do?
 evlab corrupt clean.npz bad.npz --emit-recipe r.json   # benchmark generator
+evlab corrupt-bench bad.npz --filter baf # per-type scores + detection AUROC
 ```
 
 How good is a denoising filter, really? Generate a labeled stream and score it:
@@ -48,6 +49,23 @@ evlab corrupt drive.npz drive_c.npz --types flicker,burst --severity low \
 evlab corrupt drive.npz drive_c_again.npz --recipe drive_c.recipe.json  # identical
 ```
 
+`evlab corrupt-bench` then scores any denoising filter on the corrupted
+stream: precision/recall against the per-event labels, removal rate broken
+out per corruption type, clean-signal retention, and (using the embedded
+episode schedule) the filter's per-window removal rate as a corruption
+*detector*, reported as windowed AUROC and median time-to-detection at 5%
+false-positive rate:
+
+```bash
+evlab corrupt-bench drive_c.npz --filter baf --window 3000
+#   precision       : 87.5%
+#   recall          : 96.1%
+#   clean retention : 45.7%
+#   burst           : 94.6% of 224,508 removed
+#   hot-pixels      : 96.5% of 881,946 removed
+#   as detector     : AUROC 1.000, 2/2 episodes, median TTD 72 ms
+```
+
 ## Status
 
 Early alpha. Works and is tested: the canonical representation; loading
@@ -55,8 +73,9 @@ NPZ/CSV/TXT, AEDAT4 (`[aedat]` extra), Prophesee legacy `.dat` (with
 timestamp-wrap handling), and ROS1/ROS2 bags with `EventArray` topics
 (`[ros]` extra); BAF/refractory denoising; voxel grids, time surfaces,
 accumulate frames; synthetic labeled streams and precision/recall filter
-scoring; six-type corruption injection with reproducible recipes; and the
-nine CLI commands above. Planned next: Prophesee EVT3
+scoring; six-type corruption injection with reproducible recipes and per-type
+filter scoring with detection AUROC / time-to-detection; and the ten CLI
+commands above. Planned next: Prophesee EVT3
 `.raw`, dataset-aware loaders (via [Tonic]), streaming via [Faery], and
 more filters (STCF, IE/YNoise) under `denoise-bench`.
 
