@@ -10,6 +10,7 @@ import numpy as np
 from . import formats, metrics
 from .filters import FILTERS
 from .representations import voxel_grid
+from .corrupt import SEVERITIES, TYPES, apply_schedule, load_recipe, make_schedule, save_recipe
 from .synth import GENERATORS
 
 
@@ -202,3 +203,72 @@ def benchmark(reference, other, as_json):
 
 if __name__ == "__main__":
     main()
+
+
+@main.command()
+@click.argument("src", type=click.Path(exists=True, dir_okay=False))
+@click.argument("dst", type=click.Path(dir_okay=False))
+@click.option(
+    "--types",
+    default="all",
+    show_default=True,
+    help="Comma-separated corruption types, or 'all'. Types: " + ", ".join(sorted(TYPES)),
+)
+@click.option(
+    "--severity", type=click.Choice(["low", "high"]), default="high", show_default=True
+)
+@click.option(
+    "--coverage",
+    type=float,
+    default=0.45,
+    show_default=True,
+    help="Fraction of the recording covered by corruption episodes.",
+)
+@click.option("--seed", type=int, default=0, show_default=True)
+@click.option(
+    "--recipe",
+    "recipe_in",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Replay a previously emitted recipe instead of drawing a schedule.",
+)
+@click.option(
+    "--emit-recipe",
+    "recipe_out",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write the episode schedule (exact onsets, params, seed) as JSON.",
+)
+def corrupt(src, dst, types, severity, coverage, seed, recipe_in, recipe_out):
+    """Inject physically modeled sensor corruptions with exact ground truth.
+
+    Six failure modes (hot pixels, flicker, background-activity bursts, dead
+    regions, readout congestion, polarity faults) are injected as timed
+    episodes. Every output event is labeled clean or by corruption type, and
+    injected timestamps are snapped to the recording's clock grid so the
+    injection itself is not detectable. Use --emit-recipe / --recipe to make
+    a benchmark exactly reproducible.
+    """
+    data = formats.load(src)
+    if recipe_in:
+        episodes, seed = load_recipe(recipe_in)
+    else:
+        names = sorted(TYPES) if types == "all" else [s.strip() for s in types.split(",")]
+        for name in names:
+            if name not in TYPES:
+                raise click.BadParameter(f"unknown type '{name}'; choose from {sorted(TYPES)}")
+        episodes = make_schedule(
+            data.duration_us, names, severity=severity, coverage=coverage, seed=seed
+        )
+    result = apply_schedule(data, episodes, seed=seed)
+    if not dst.endswith(".npz"):
+        raise click.BadParameter("dst must be .npz to preserve ground-truth labels")
+    formats.save(result, dst)
+    if recipe_out:
+        save_recipe(result.meta["schedule"], seed, recipe_out)
+    labels = result.meta["corruption"]
+    n_cor = int((labels != 0).sum())
+    click.echo(
+        f"wrote {len(result.events):,} events ({n_cor:,} corrupted, "
+        f"{len(episodes)} episodes) -> {dst}"
+    )

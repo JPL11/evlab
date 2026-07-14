@@ -19,6 +19,7 @@ evlab denoise events.npz clean.npz --filter baf --window 5000
 evlab voxel clean.npz voxels.npy --bins 10
 evlab visualize clean.npz preview.gif --mode gif
 evlab benchmark events.npz clean.npz     # what did the filter do?
+evlab corrupt clean.npz bad.npz --emit-recipe r.json   # benchmark generator
 ```
 
 How good is a denoising filter, really? Generate a labeled stream and score it:
@@ -32,6 +33,21 @@ evlab denoise-bench labeled.npz --filter baf --window 3000
 #   noise removed : 99.2%
 ```
 
+Need a robustness benchmark instead of a clean one? `evlab corrupt` injects
+six physically modeled sensor failure modes (leak-event hot pixels, mains
+flicker, background-activity bursts, dead regions, readout congestion,
+polarity faults) as timed episodes with per-event ground-truth labels, at two
+documented severities. Injected timestamps are snapped to the recording's
+detected clock quantum, so detectors find the corruption, not the injection.
+`--emit-recipe`/`--recipe` make a corrupted benchmark exactly reproducible
+from the source recording:
+
+```bash
+evlab corrupt drive.npz drive_c.npz --types flicker,burst --severity low \
+    --seed 3 --emit-recipe drive_c.recipe.json
+evlab corrupt drive.npz drive_c_again.npz --recipe drive_c.recipe.json  # identical
+```
+
 ## Status
 
 Early alpha. Works and is tested: the canonical representation; loading
@@ -39,7 +55,8 @@ NPZ/CSV/TXT, AEDAT4 (`[aedat]` extra), Prophesee legacy `.dat` (with
 timestamp-wrap handling), and ROS1/ROS2 bags with `EventArray` topics
 (`[ros]` extra); BAF/refractory denoising; voxel grids, time surfaces,
 accumulate frames; synthetic labeled streams and precision/recall filter
-scoring; and the eight CLI commands above. Planned next: Prophesee EVT3
+scoring; six-type corruption injection with reproducible recipes; and the
+nine CLI commands above. Planned next: Prophesee EVT3
 `.raw`, dataset-aware loaders (via [Tonic]), streaming via [Faery], and
 more filters (STCF, IE/YNoise) under `denoise-bench`.
 

@@ -119,6 +119,12 @@ def load_npz(path: str) -> EventData:
         # identity on sorted input, so the mask stays aligned.
         if "signal" in available:
             out.meta["signal"] = data["signal"].astype(bool)
+        # Corruption type labels (written by `evlab corrupt`), same alignment
+        # argument as above.
+        if "corruption" in available:
+            import numpy as _np
+
+            out.meta["corruption"] = data["corruption"].astype(_np.int8)
         return out
 
 
@@ -126,6 +132,8 @@ def save_npz(data: EventData, path: str) -> None:
     extra = {}
     if "signal" in data.meta:
         extra["signal"] = np.asarray(data.meta["signal"], dtype=bool)
+    if "corruption" in data.meta:
+        extra["corruption"] = np.asarray(data.meta["corruption"], dtype=np.int8)
     np.savez_compressed(
         path, events=data.events, width=np.int64(data.width), height=np.int64(data.height), **extra
     )
