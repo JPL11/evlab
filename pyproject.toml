@@ -26,7 +26,24 @@ classifiers = [
 viz = ["matplotlib>=3.7", "pillow>=10.0"]
 aedat = ["aedat>=2.0"]
 ros = ["rosbags>=0.10"]
-dev = ["pytest>=7.0", "ruff>=0.4", "matplotlib>=3.7", "pillow>=10.0", "rosbags>=0.10"]
+ui = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "matplotlib>=3.7",
+    "pillow>=10.0",
+]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+    "matplotlib>=3.7",
+    "pillow>=10.0",
+    "rosbags>=0.10",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 evlab = "evlab.cli:main"

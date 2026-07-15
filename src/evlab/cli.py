@@ -201,6 +201,28 @@ def benchmark(reference, other, as_json):
     click.echo(f"structure (new)  : {result['structure_other']:.3f}")
 
 
+@main.command()
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", type=int, default=8000, show_default=True)
+def serve(host, port):
+    """Launch the local web UI for quick denoise/corrupt runs on a clip."""
+    import os
+
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import uvicorn
+
+        from .server import create_app
+
+        app = create_app()
+    except ImportError as e:
+        raise click.ClickException(
+            f"web UI dependency '{e.name}' missing; install with `pip install 'evlab[ui]'`"
+        ) from e
+    click.echo(f"evlab web UI on http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port)
+
+
 if __name__ == "__main__":
     main()
 
@@ -266,6 +288,8 @@ def corrupt(src, dst, types, severity, coverage, seed, recipe_in, recipe_out):
         save_recipe(result.meta["schedule"], seed, recipe_out)
     labels = result.meta["corruption"]
     n_cor = int((labels != 0).sum())
+    if not episodes:
+        click.secho("warning: no corruption episodes fit this recording", fg="yellow", err=True)
     click.echo(
         f"wrote {len(result.events):,} events ({n_cor:,} corrupted, "
         f"{len(episodes)} episodes) -> {dst}"

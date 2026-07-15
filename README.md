@@ -67,6 +67,23 @@ evlab corrupt-bench drive_c.npz --filter baf --window 3000
 #   as detector     : AUROC 1.000, 2/2 episodes, median TTD 72 ms
 ```
 
+## Web UI
+
+For quick one-off runs on a clip — sensor-agnostic, any supported format:
+
+```bash
+pip install 'evlab[ui]'
+evlab serve            # open http://127.0.0.1:8000
+```
+
+Drop an event file, pick denoise or corrupt, and get before/after renders,
+summary stats, and a downloadable .npz. The same UI ships as a container:
+
+```bash
+docker build -t evlab .
+docker run --rm -p 8000:8000 evlab
+```
+
 ## Status
 
 Early alpha. Works and is tested: the canonical representation; loading
@@ -76,7 +93,8 @@ timestamp-wrap handling), and ROS1/ROS2 bags with `EventArray` topics
 accumulate frames; synthetic labeled streams and precision/recall filter
 scoring; six-type corruption injection with reproducible recipes and per-type
 filter scoring with detection AUROC / time-to-detection; 12 causal
-per-window monitoring features (`evlab features`); and the eleven CLI
+per-window monitoring features (`evlab features`); the local web UI
+(`evlab serve`, `[ui]` extra) with a Dockerfile; and the CLI
 commands above. Planned next: Prophesee EVT3
 `.raw`, dataset-aware loaders (via [Tonic]), streaming via [Faery], and
 more filters (STCF, IE/YNoise) under `denoise-bench`.

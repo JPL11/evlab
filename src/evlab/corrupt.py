@@ -76,10 +76,11 @@ def make_schedule(
     (start_us, end_us, type, severity, params) with exact onsets."""
     rng = np.random.default_rng(seed)
     lo, hi = (int(episode_range_s[0] * 1e6), int(episode_range_s[1] * 1e6))
-    # Short recordings still get one episode, scaled to fit.
-    if duration_us < lo:
-        lo = max(duration_us // 3, 1)
+    # Recordings shorter than the episode maximum still get episodes,
+    # scaled so at least one is guaranteed to fit after the leading gap.
+    if duration_us < hi:
         hi = max(duration_us // 2, 2)
+        lo = min(lo, max(duration_us // 3, 1))
     episodes = []
     corrupted = 0
     cursor = 0

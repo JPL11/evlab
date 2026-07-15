@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>evlab</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1a1d21; --muted: #6a7280;
+    --accent: #2563eb; --border: #d7dbe0; --err: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --panel: #1e2128; --ink: #e8eaed; --muted: #9aa3af;
+      --accent: #60a5fa; --border: #33383f; --err: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; }
+  form, #out {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;
+  }
+  label { display: block; font-weight: 600; margin: .75rem 0 .25rem; }
+  input, select {
+    width: 100%; padding: .45rem .6rem; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit;
+  }
+  input[type="file"] { padding: .35rem; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .row > div { flex: 1 1 140px; }
+  fieldset { border: none; padding: 0; margin: 0; }
+  button {
+    margin-top: 1rem; padding: .55rem 1.4rem; border: none; border-radius: 6px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: wait; }
+  #out { display: none; }
+  #error { color: var(--err); font-weight: 600; display: none; margin-top: 1rem; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+  td { padding: .3rem .5rem; border-bottom: 1px solid var(--border); }
+  td:first-child { color: var(--muted); width: 40%; }
+  .previews { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .previews figure { flex: 1 1 260px; margin: 0; text-align: center; }
+  .previews img { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; }
+  figcaption { color: var(--muted); font-size: .85rem; margin-top: .25rem; }
+  a.dl { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>evlab</h1>
+  <p class="sub">Quick denoise / corrupt on an event-camera clip — any supported
+    format, any resolution. Results download as .npz.</p>
+
+  <form id="form">
+    <label for="file">Event file (npz, csv, txt, aedat4, dat, bag)</label>
+    <input type="file" id="file" name="file" required>
+
+    <label for="op">Operation</label>
+    <select id="op" name="op">
+      <option value="denoise">denoise — remove background noise</option>
+      <option value="corrupt">corrupt — inject labeled sensor faults</option>
+    </select>
+
+    <fieldset id="denoise-params">
+      <div class="row">
+        <div>
+          <label for="filter_name">Filter</label>
+          <select id="filter_name" name="filter_name">
+            <option value="baf">baf (background activity)</option>
+            <option value="refractory">refractory</option>
+          </select>
+        </div>
+        <div>
+          <label for="window">Window / refractory (µs)</label>
+          <input type="number" id="window" name="window" value="5000" min="1">
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset id="corrupt-params" hidden>
+      <div class="row">
+        <div>
+          <label for="types">Types (comma-separated or "all")</label>
+          <input id="types" name="types" value="all">
+        </div>
+        <div>
+          <label for="severity">Severity</label>
+          <select id="severity" name="severity">
+            <option value="high">high</option>
+            <option value="low">low</option>
+          </select>
+        </div>
+        <div>
+          <label for="coverage">Coverage</label>
+          <input type="number" id="coverage" name="coverage" value="0.45"
+                 min="0.05" max="0.95" step="0.05">
+        </div>
+        <div>
+          <label for="seed">Seed</label>
+          <input type="number" id="seed" name="seed" value="0">
+        </div>
+      </div>
+    </fieldset>
+
+    <button id="go" type="submit">Run</button>
+    <div id="error"></div>
+  </form>
+
+  <section id="out">
+    <table id="stats"></table>
+    <div class="previews">
+      <figure><img id="before" alt="before"><figcaption>before</figcaption></figure>
+      <figure><img id="after" alt="after"><figcaption>after</figcaption></figure>
+    </div>
+    <p><a id="download" class="dl" href="#">Download result (.npz)</a></p>
+  </section>
+</main>
+
+<script>
+  const form = document.getElementById("form");
+  const opSel = document.getElementById("op");
+  const err = document.getElementById("error");
+  const out = document.getElementById("out");
+  const go = document.getElementById("go");
+
+  opSel.addEventListener("change", () => {
+    document.getElementById("denoise-params").hidden = opSel.value !== "denoise";
+    document.getElementById("corrupt-params").hidden = opSel.value !== "corrupt";
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.style.display = "none";
+    out.style.display = "none";
+    go.disabled = true;
+    go.textContent = "Running…";
+    try {
+      const resp = await fetch("/api/process", {
+        method: "POST",
+        body: new FormData(form),
+      });
+      const body = await resp.json();
+      if (!resp.ok) throw new Error(body.detail || resp.statusText);
+      render(body);
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.style.display = "block";
+    } finally {
+      go.disabled = false;
+      go.textContent = "Run";
+    }
+  });
+
+  function render(body) {
+    const rows = Object.entries(body.stats).map(([k, v]) => {
+      if (typeof v === "number" && !Number.isInteger(v)) v = v.toFixed(4);
+      else if (typeof v === "number") v = v.toLocaleString();
+      return `<tr><td>${k.replaceAll("_", " ")}</td><td>${v}</td></tr>`;
+    });
+    document.getElementById("stats").innerHTML = rows.join("");
+    for (const [id, png] of [["before", body.preview_before], ["after", body.preview_after]]) {
+      const img = document.getElementById(id);
+      img.parentElement.style.display = png ? "" : "none";
+      if (png) img.src = "data:image/png;base64," + png;
+    }
+    const dl = document.getElementById("download");
+    dl.href = `/api/result/${body.token}?name=${encodeURIComponent(body.filename)}`;
+    dl.download = body.filename;
+    out.style.display = "block";
+  }
+</script>
+</body>
+</html>
